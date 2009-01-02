@@ -1,6 +1,5 @@
 require "config/environment"
 
-MODEL_DIR   = File.join(RAILS_ROOT, "app/models")
 FIXTURE_DIR = File.join(RAILS_ROOT, "test/fixtures")
 RSPEC_DIR   = File.join(RAILS_ROOT, "spec/models")
 RSPEC_FIXTURES = File.join(RAILS_ROOT, "spec/fixtures")
@@ -72,10 +71,9 @@ module AnnotateModels
   # on the columns and their types) and put it at the front
   # of the model and fixture source files.
 
-  def self.annotate(klass, header)
+  def self.annotate(klass, header, model_file_name, plugins_only=false)
     info = get_schema_info(klass, header)
     
-    model_file_name = File.join(MODEL_DIR, klass.name.underscore + ".rb")
     annotate_one_file(model_file_name, info)
     
     if File.join(RAILS_ROOT, "spec")
@@ -96,13 +94,13 @@ module AnnotateModels
   # the underscore or CamelCase versions of model names.
   # Otherwise we take all the model files in the 
   # app/models directory.
-  def self.get_model_names
+  def self.get_model_names(plugins_only=false)
     models = ARGV.dup
     models.shift
     
     if models.empty?
-      Dir.chdir(MODEL_DIR) do 
-        models = Dir["**/*.rb"]
+      Dir.chdir(RAILS_ROOT) do
+        plugins_only == false ? models = Dir["app/models/*.rb"] : models = Dir["vendor/plugins/*/app/models/*.rb"]
       end
     end
     models
@@ -113,25 +111,26 @@ module AnnotateModels
   # if its a subclass of ActiveRecord::Base,
   # then pas it to the associated block
 
-  def self.do_annotations
+  def self.do_annotations(plugins_only=false)
     header = PREFIX.dup
     version = ActiveRecord::Migrator.current_version rescue 0
     if version > 0
       header << "\n# Schema version: #{version}"
     end
     
-    self.get_model_names.each do |m|
-      class_name = m.sub(/\.rb$/,'').camelize
+    self.get_model_names(plugins_only).each do |m|
+      class_name = File.basename(m, ".rb").camelize
+      model_file_path = m
       begin
         klass = class_name.split('::').inject(Object){ |klass,part| klass.const_get(part) }
         if klass < ActiveRecord::Base && !klass.abstract_class?
-          puts "Annotating #{class_name}"
-          self.annotate(klass, header)
+          puts "Annotating #{class_name} (#{model_file_path})"
+          self.annotate(klass, header, model_file_path, plugins_only)
         else
-          puts "Skipping #{class_name}"
+          puts "Skipping #{class_name} (#{model_file_path})"
         end
       rescue Exception => e
-        puts "Unable to annotate #{class_name}: #{e.message}"
+        puts "Unable to annotate #{class_name} (#{model_file_path}) - #{e.message}"
       end
       
     end
